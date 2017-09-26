@@ -11,8 +11,8 @@ import pymapd
 from pymapd import connect
 
 # change these per your environment
-NWRITER = 2								# number of writer (LOAD   query) threads
-NREADER = 5								# number of reader (SELECT query) threads
+NWRITER = 1								# number of writer (LOAD   query) threads
+NREADER = 1								# number of reader (SELECT query) threads
 CSVPATH = '/mnt/trip/csvfiles/*.csv'	# NY taxcab trip CSV file paths
 
 # this signals end of data loading
@@ -53,8 +53,11 @@ def reader(ith):
 	while not end_of_writes:
 		time.sleep(random.random());
 		cur = con.cursor()
-		cur.execute("select count(*) from (select max(trip_time_in_secs) from trip1 where trip_time_in_secs > 10 group by trip_time_in_secs);")
-		print "reader[%d]: result = " % ith, list(cur)
+		try:
+			cur.execute("select count(*) from (select max(trip_time_in_secs) from trip1 where trip_time_in_secs > 10 group by trip_time_in_secs);")
+			print "reader[%d]: result = " % ith, list(cur)
+		except pymapd.exceptions.Error as e:
+			print "reader[%d]: error = " % ith, e		
 		cur.close()
 		
 	con.close()
