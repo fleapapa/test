@@ -7,6 +7,12 @@ import threading
 from pyclickhouse import Connection
 import time
 
+def to_float(str):
+	try:
+		return float(str)
+	except Exception, e:
+		return .0
+
 def worker(csv_file):
         con = Connection('localhost', 8123)
         cur = con.cursor()
@@ -20,73 +26,73 @@ def worker(csv_file):
                     if nrec > 0:
                         try:
                             values.append({
-                                '_cx':  time.strftime("%Y/%m/%d"),
-                                '_c0':  row[0],
-                                '_c1':  row[1],
-                                '_c2':  row[2],
-                                '_c3':  row[3],
-                                '_c4':  row[4],
-                                '_c5':  row[5],
-                                '_c6':  row[6],
-                                '_c7':  int(row[7]),
-                                '_c8':  int(row[8]),
-                                '_c9':  float(row[9]),
-                                '_c10':  float(row[10]),
-                                '_c11':  float(row[11]),
-                                '_c12':  float(row[12]),
-                                '_c13':  float(row[13]),
+                                '_cx':  row[5].split(' ')[0], #time.strftime("%Y/%m/%d"),
+                                'medallion':           row[0],
+                                'hack_license':        row[1],
+                                'vendor_id':           row[2],
+                                'rate_code_id':        row[3],
+                                'store_and_fwd_flag':  row[4],
+                                'pickup_datetime':     row[5],
+                                'dropoff_datetime':    row[6],
+                                'passenger_count':     int(row[7]),
+                                'trip_time_in_secs':   int(row[8]),
+                                'trip_distance':       to_float(row[9]),
+                                'pickup_longitude':    to_float(row[10]),
+                                'pickup_latitude':     to_float(row[11]),
+                                'dropoff_longitude':   to_float(row[12]),
+                                'dropoff_latitude':    to_float(row[13]),
                                 })
                         except Exception, e:
-                            print 'values.append(%s:%d): %s' % (csv_file, nrec, str(e))
+                            print 'values.append(%s:%d): %s, file %s, row \'%s\'' % (csv_file, nrec, str(e), csv_file, row)
                             
                     nrec += 1
                     if nrec % 1024 == 0:
                         print '%s = %d' % (csv_file, nrec)
 
                         try:
-                            cur.bulkinsert('trip', values)
+                            cur.bulkinsert('trips', values)
                         except Exception, e:
                             print 'bulkinsert(wts): %s' % str(e)
 
                         values = []
 
         print '%s = %d' % (csv_file, nrec)
-        cur.bulkinsert('trip', values)
-        cur.close()
+        cur.bulkinsert('trips', values)
+#        cur.close()
         con.close()
         
-# create trip table
+# create trips table
 con = Connection('localhost', 8123)
 cur = con.cursor()
 
 cur.ddl("""
-    drop table if exists trip
+    drop table if exists trips
 """)
 
 cur.ddl("""
-    create table trip (
-        _cx    Date,
-        _c0    String,
-        _c1    String,
-        _c2    String,
-        _c3    String,
-        _c4    String,
-        _c5    DateTime,
-        _c6    DateTime,
-        _c7    Int8,
-        _c8    UInt16,
-        _c9    Float32,
-        _c10   Float32,
-        _c11   Float32,
-        _c12   Float32,
-        _c13   Float32
+    create table trips (
+        _cx                Date,
+        medallion          String,
+        hack_license       String,
+        vendor_id          String,
+        rate_code_id       String,
+        store_and_fwd_flag String,
+        pickup_datetime    DateTime,
+        dropoff_datetime   DateTime,
+        passenger_count    Int8,
+        trip_time_in_secs  Int32,    -- somehow CSV files contain many "-10"
+        trip_distance      Float32,
+        pickup_longitude   Float32,
+        pickup_latitude    Float32,
+        dropoff_longitude  Float32,
+        dropoff_latitude   Float32
 )
-engine=MergeTree(_cx, (_c5, _c6, _c10, _c11), 8192)
+engine = ReplacingMergeTree(_cx, (pickup_datetime, medallion, hack_license), 8192, dropoff_datetime)
 """)
 
 # get the list of csv files
 import glob
-csv_files = glob.glob('/data/tmp/parquet/trip_data/*.csv')
+csv_files = glob.glob('/mnt/trip/csvfiles//*.csv')
 print csv_files
 # main
 nth = len(csv_files)
