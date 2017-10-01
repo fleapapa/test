@@ -10,6 +10,7 @@ import os
 import pymapd
 import datetime
 import ciso8601
+import rwlock
 from dateutil import parser
 from pymapd import connect
 
@@ -19,7 +20,8 @@ CSVPATH = '/mnt/trip/csvfiles/*.csv'    # NY taxcab trip CSV file paths
 re_create_table = False                 # -c to remove and create table before begin test
 nwriter = 0                             # -w number of writer (LOAD   query) threads
 nreader = 1                             # -r number of reader (SELECT query) threads
-ninterf = 0                             # -i number of seconds to interleave forking of threads 
+ninterf = 0                             # -i number of seconds to interleave forking of threads
+interleave_reads_and_writes = False		# -I this will run write and read in sequence instead of concurrently
 
 def usage():
 	print sys.argv[0], ' cmd args error :)'
@@ -29,11 +31,12 @@ def usage():
 	print "\t -r nr       fork nr readers"
 	print "\t -w nw       fork nw writers"
 	print "\t -i ns       interleave forking threads with ns seconds"
+	print "\t -I          interleave readers and writers for checking a racing condition"
 	sys.exit(-1)
 	
 # parse args
 try:
-	opts, args = getopt.getopt(sys.argv[1:], "w:r:i:ch")
+	opts, args = getopt.getopt(sys.argv[1:], "w:r:i:chI")
 except getopt.GetoptError:
 	usage()
 
@@ -48,6 +51,8 @@ for opt, arg in opts:
 		nwriter = int(arg)
 	elif opt == '-i':
 		ninterf = int(arg)
+	elif opt == '-h':
+		interleave_reads_and_writes = True
 
 # this signals end of data loading
 end_of_writes = False
@@ -60,6 +65,10 @@ print csv_files
 # this is for synchronize writers
 lck_csvfile = threading.Lock()
 idx_csvfile = 0
+
+# this lock is for synchronize readers and writers
+# this is for debugging a racing condition
+lck_reads_and_writes = rwlock.RWLock()
 
 def print_used_time(head, tsec):
 	tmin = tsec // 60
@@ -135,12 +144,21 @@ def writer(ith):
 
 				nrec += 1
 				if nrec % 4096 == 0:
+					# if mutual exclusive with readers
+					if interleave_reads_and_writes:
+						lck_reads_and_writes.acquire_write()
+
 					print '%s = %d' % (csv_file, nrec)
 					try:
 						con.load_table('trips', values)
 					except Exception, e:
 						print 'load_table(trips): %s' % str(e)
 					values = []
+					
+					# if mutual exclusive with readers
+					if interleave_reads_and_writes:
+						lck_reads_and_writes.relase()
+
 
 		# flush
 		print '%s = %d' % (csv_file, nrec)
@@ -162,6 +180,11 @@ def reader(ith):
 	con = connect(user=os.environ['MAPD_USERNAME'], password=os.environ['MAPD_PASSWORD'], host="localhost", dbname="mapd")
 	while not end_of_writes:
 		time.sleep(random.random());
+					
+		# if mutual exclusive with readers
+		if interleave_reads_and_writes:
+			lck_reads_and_writes.acquire_read()
+
 		cur = con.cursor()
 		try:
 			column = columns[ith % len(columns)]
@@ -170,6 +193,11 @@ def reader(ith):
 		except pymapd.exceptions.Error as e:
 			print "reader[%d]: error = " % ith, e		
 		cur.close()
+					
+		# if mutual exclusive with readers
+		if interleave_reads_and_writes:
+			lck_reads_and_writes.release()
+			
 	con.close()
 
 if re_create_table:
