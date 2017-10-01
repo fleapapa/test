@@ -84,51 +84,6 @@ lck_write = threading.Lock()
 
 random.seed()
 
-def writer(csv_file):
-        con = connect(user=os.environ['MAPD_USERNAME'], password=os.environ['MAPD_PASSWORD'], host="localhost", dbname="mapd")
-
-        nrec = 0
-        values = []
-        with open(csv_file, 'rb') as f:
-            reader = csv.reader(f, delimiter=',', quotechar='"')
-            for row in reader:
-                    # skip header line
-                    if nrec > 0:
-                        try:
-                            values.append([
-                                row[0],					# medallion 
-                                row[1],					# hack_license
-                                row[2],					# vendor_id
-                                row[3],					# rate_code_id
-                                row[4],					# store_and_fwd_flag
-                                row[5],					# pickup_datetime
-                                row[6],					# dropoff_datetime
-                                int(row[7]),			# passenger_count
-                                int(row[8]),			# trip_time_in_secs
-                                float(row[9]),			# trip_distance
-                                float(row[10]),			# pickup_longitude
-                                float(row[11]),			# pickup_latitude
-                                float(row[12]),			# dropoff_longitude
-                                float(row[13]),			# dropoff_latitude
-                                ])
-                        except Exception, e:
-                            print 'values.append(%s:%d): %s' % (csv_file, nrec, str(e))
-                            
-                    nrec += 1
-                    if nrec % 1024 == 0:
-                        print '%s = %d' % (csv_file, nrec)
-
-                        try:
-                            con.load_table('trips', values)
-                        except Exception, e:
-                            print 'load_table(wts): %s' % str(e)
-
-                        values = []
-
-        print '%s = %d' % (csv_file, nrec)
-        con.load_table('trips', values)
-        con.close()
-
 def writer(ith):
 	con = connect(user=os.environ['MAPD_USERNAME'], password=os.environ['MAPD_PASSWORD'], host="localhost", dbname="mapd")
 	while True:
@@ -199,14 +154,18 @@ def writer(ith):
 		lck_write.release()
 
 	con.close()
-		
+
 def reader(ith):
+	# different readers aggregate different columns to saturrate cpu ram
+	columns = ['pickup_datetime', 'dropoff_datetime', 'trip_time_in_secs', 'trip_distance', 'pickup_longitude', 'pickup_latitude', 'dropoff_longitude', 'dropoff_latitude']
+
 	con = connect(user=os.environ['MAPD_USERNAME'], password=os.environ['MAPD_PASSWORD'], host="localhost", dbname="mapd")
 	while not end_of_writes:
 		time.sleep(random.random());
 		cur = con.cursor()
 		try:
-			cur.execute("select count(*) from (select max(trip_time_in_secs) from trips where trip_time_in_secs > 10 group by trip_time_in_secs);")
+			column = columns[ith % len(columns)]
+			cur.execute("select count(*) from (select max(%s) from trips group by %s);" % (column, column))
 			print "reader[%d]: result = " % ith, list(cur)
 		except pymapd.exceptions.Error as e:
 			print "reader[%d]: error = " % ith, e		
@@ -280,7 +239,9 @@ for t in wthreads: t.join()
 # when nwriter==0, if we set end_of_writes to True immediately, no reader will
 # has any chance to send SELECT query to mapd, so sleep a while for SELECT to be sent.
 time.sleep(2)
-end_of_writes = True
+
+# TODO: stop readers after writers
+# end_of_writes = True
 
 # wait for readers to finish
 for t in rthreads: t.join()
