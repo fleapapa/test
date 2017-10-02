@@ -10,7 +10,6 @@ import os
 import pymapd
 import datetime
 import ciso8601
-import rwlock
 from dateutil import parser
 from pymapd import connect
 
@@ -51,7 +50,7 @@ for opt, arg in opts:
 		nwriter = int(arg)
 	elif opt == '-i':
 		ninterf = int(arg)
-	elif opt == '-h':
+	elif opt == '-I':
 		interleave_reads_and_writes = True
 
 # this signals end of data loading
@@ -68,7 +67,7 @@ idx_csvfile = 0
 
 # this lock is for synchronize readers and writers
 # this is for debugging a racing condition
-lck_reads_and_writes = rwlock.RWLock()
+lck_reads_and_writes = threading.Lock()
 
 def print_used_time(head, tsec):
 	tmin = tsec // 60
@@ -146,7 +145,7 @@ def writer(ith):
 				if nrec % 4096 == 0:
 					# if mutual exclusive with readers
 					if interleave_reads_and_writes:
-						lck_reads_and_writes.acquire_write()
+						lck_reads_and_writes.acquire()
 
 					print '%s = %d' % (csv_file, nrec)
 					try:
@@ -157,7 +156,7 @@ def writer(ith):
 					
 					# if mutual exclusive with readers
 					if interleave_reads_and_writes:
-						lck_reads_and_writes.relase()
+						lck_reads_and_writes.release()
 
 
 		# flush
@@ -184,7 +183,7 @@ def reader(ith):
 					
 		# if mutual exclusive with readers
 		if interleave_reads_and_writes:
-			lck_reads_and_writes.acquire_read()
+			lck_reads_and_writes.acquire()
 
 		cur = con.cursor()
 		try:
