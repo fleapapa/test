@@ -175,7 +175,8 @@ def writer(ith):
 
 def reader(ith):
 	# different readers aggregate different columns to saturrate cpu ram
-	columns = ['pickup_datetime', 'dropoff_datetime', 'trip_time_in_secs', 'trip_distance', 'pickup_longitude', 'pickup_latitude', 'dropoff_longitude', 'dropoff_latitude']
+	max_columns = ['pickup_datetime', 'dropoff_datetime', 'trip_time_in_secs', 'trip_distance', 'pickup_longitude', 'pickup_latitude', 'dropoff_longitude', 'dropoff_latitude']
+	grp_columns = ['medallion', 'hack_license']
 
 	con = connect(user=os.environ['MAPD_USERNAME'], password=os.environ['MAPD_PASSWORD'], host="localhost", dbname="mapd")
 	while not end_of_writes:
@@ -187,9 +188,10 @@ def reader(ith):
 
 		cur = con.cursor()
 		try:
-			column = columns[ith % len(columns)]
-			cur.execute("select count(*) from (select max(%s) from trips group by %s);" % (column, column))
-			print "reader[%d]: result = " % ith, list(cur)
+			max_column = max_columns[ith % len(max_columns)]
+			grp_column = grp_columns[ith % len(grp_columns)]
+			cur.execute("select count(*) from (select max(%s) from trips group by %s);" % (max_column, grp_column))
+			print "reader[%d]: result(%s, %s) = " % (ith, max_column, grp_column), list(cur)
 		except pymapd.exceptions.Error as e:
 			print "reader[%d]: error = " % ith, e		
 		cur.close()
