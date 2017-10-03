@@ -179,7 +179,7 @@ def reader(ith):
 
 	con = connect(user=os.environ['MAPD_USERNAME'], password=os.environ['MAPD_PASSWORD'], host="localhost", dbname="mapd")
 	while not end_of_writes:
-		time.sleep(random.random());
+		# time.sleep(random.random());
 					
 		# if mutual exclusive with readers
 		if interleave_reads_and_writes:
