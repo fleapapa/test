@@ -174,7 +174,10 @@ def writer(ith):
 
 def reader(ith):
 	# different readers aggregate different columns to saturrate cpu ram
-	max_columns = ['pickup_datetime', 'dropoff_datetime', 'trip_time_in_secs', 'trip_distance', 'pickup_longitude', 'pickup_latitude', 'dropoff_longitude', 'dropoff_latitude']
+	max_columns = ['pickup_datetime', 'dropoff_datetime', 'trip_time_in_secs', 'trip_distance', 
+				   'pickup_longitude', 'pickup_latitude', 'dropoff_longitude', 'dropoff_latitude',
+				   'medallion', 'hack_license', 'vendor_id', 'rate_code_id', 'store_and_fwd_flag', 'passenger_count',
+				   ]
 	grp_columns = ['medallion', 'hack_license']
 
 	con = connect(user=os.environ['MAPD_USERNAME'], password=os.environ['MAPD_PASSWORD'], host="localhost", dbname="mapd")
