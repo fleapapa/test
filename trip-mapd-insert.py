@@ -15,7 +15,7 @@ from pymapd import connect
 
 # change these per your environment
 # could make csv file path and table name also configurable but not a priority for now:) 
-CSVPATH = '/mnt/trip/csvfiles/*.csv'    # NY taxcab trip CSV file paths
+CSVPATH = '/mnt/trip/csvfiles/trip*.csv'# NY taxcab trip CSV file paths
 re_create_table = False                 # -c to remove and create table before begin test
 nwriter = 0                             # -w number of writer (LOAD   query) threads
 nreader = 1                             # -r number of reader (SELECT query) threads

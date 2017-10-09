@@ -12,23 +12,25 @@ from pymapd import connect
 
 # change these per your environment
 # could make csv file path and table name also configurable but not a priority for now:) 
-CSVPATH = '/mnt/trip/csvfiles/*.csv'	# NY taxcab trip CSV file paths
-re_create_table = False					# -c to remove and create table before begin test
-nwriter = 0								# -w number of writer (LOAD   query) threads
-nreader = 1								# -r number of reader (SELECT query) threads
+CSVPATH = '/mnt/trip/csvfiles/trip*.csv'# NY taxcab trip CSV file paths
+re_create_table = False                 # -c to remove and create table before begin test
+nwriter = 0                             # -w number of writer (LOAD   query) threads
+nreader = 1                             # -r number of reader (SELECT query) threads
+ninterf = 0                             # -i number of seconds to interleave forking of threads 
 
 def usage():
 	print sys.argv[0], ' cmd args error :)'
-	print "usage: %s [-h][-c][-w nw][-r nr]" % os.path.basename(sys.argv[0])
+	print "usage: %s [-h][-c][-w nw][-r nr][-i ns]" % os.path.basename(sys.argv[0])
 	print "\t -h          show this help"
 	print "\t -c          delete and re-create table"
 	print "\t -r nr       fork nr readers"
 	print "\t -w nw       fork nw writers"
+	print "\t -i ns       interleave forking threads with ns seconds"
 	sys.exit(-1)
 	
 # parse args
 try:
-	opts, args = getopt.getopt(sys.argv[1:], "w:r::ch")
+	opts, args = getopt.getopt(sys.argv[1:], "w:r:i:ch")
 except getopt.GetoptError:
 	usage()
 
@@ -41,6 +43,8 @@ for opt, arg in opts:
 		nreader = int(arg)
 	elif opt == '-w':
 		nwriter = int(arg)
+	elif opt == '-i':
+		ninterf = int(arg)
 
 # this signals end of data loading
 end_of_writes = False
@@ -55,8 +59,7 @@ lck_csvfile = threading.Lock()
 idx_csvfile = 0
 
 def writer(ith):
-	con = connect(user=os.environ['MAPD_USERNAME'], password=os.environ['MAPD_PASSWORD'], host="localhost", dbname="mapd")
-	
+	con = connect(user=os.environ['MAPD_USERNAME'], password=os.environ['MAPD_PASSWORD'], host="localhost", dbname="mapd")	
 	while True:
 		# get a csv file to load
 		global idx_csvfile
@@ -69,41 +72,38 @@ def writer(ith):
 		
 		print "writer[%d]: loading %s" % (ith, csv_files[fi])
 		cur = con.cursor()
-		cur.execute("COPY trip1 FROM '%s' WITH (header='true');" % csv_files[fi])
+		cur.execute("COPY trips FROM '%s' WITH (header='true');" % csv_files[fi])
 		cur.close()
-
 	con.close()
 
 def reader(ith):
 	con = connect(user=os.environ['MAPD_USERNAME'], password=os.environ['MAPD_PASSWORD'], host="localhost", dbname="mapd")
-	
 	while not end_of_writes:
 		time.sleep(random.random());
 		cur = con.cursor()
 		try:
-			cur.execute("select count(*) from (select max(trip_time_in_secs) from trip1 where trip_time_in_secs > 10 group by trip_time_in_secs);")
+			cur.execute("select count(*) from (select max(trip_time_in_secs) from trips where trip_time_in_secs > 10 group by trip_time_in_secs);")
 			print "reader[%d]: result = " % ith, list(cur)
 		except pymapd.exceptions.Error as e:
 			print "reader[%d]: error = " % ith, e		
 		cur.close()
-		
 	con.close()
 
 if re_create_table:
-	# drop table trip1 if exists
+	# drop table trips if exists
 	gcon = connect(user=os.environ['MAPD_USERNAME'], password=os.environ['MAPD_PASSWORD'], host="localhost", dbname="mapd")
 	gcur = gcon.cursor()
 	
 	try:
-		print "drop table trip1 if exists..."
-		gcur.execute("drop table trip1;")
+		print "drop table trips if exists..."
+		gcur.execute("drop table trips;")
 	except pymapd.exceptions.Error as e:
 		#print e
 		pass
 	
-	print "create table trip1..."
+	print "create table trips..."
 	gcur.execute(
-	'''CREATE TABLE trip1 (
+	'''CREATE TABLE trips (
 		medallion               TEXT ENCODING DICT,
 		hack_license            TEXT ENCODING DICT,
 		vendor_id               TEXT ENCODING DICT,
@@ -135,6 +135,8 @@ for i in range(0, nwriter):
 	t = threading.Thread(target=writer, args=[i])
 	wthreads.append(t)
 	t.start()
+	print "\twriter %d forked" % i
+	time.sleep(ninterf)
 
 # fork some reader threads to test concurrency
 print "launch %d reader threads..." % nreader
@@ -142,14 +144,18 @@ for i in range(0, nreader):
 	t = threading.Thread(target=reader, args=[i])
 	rthreads.append(t)
 	t.start()
+	print "\treader %d forked" % i
+	time.sleep(ninterf)
 
 # wait for writers to finish
 for t in wthreads: t.join()
 
 # when nwriter==0, if we set end_of_writes to True immediately, no reader will
 # has any chance to send SELECT query to mapd, so sleep a while for SELECT to be sent.
-time.sleep(2)
-end_of_writes = True
+# TODO: for now keep readers on reading
+if True:
+	time.sleep(2)
+	end_of_writes = True
 
 # wait for readers to finish
 for t in rthreads: t.join()
